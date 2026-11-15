@@ -1,47 +1,98 @@
 
 $ProjectPath = "D:\Mobile-Price-Range-Classification"
-$LastStatus = ""
-$LastChangeTime = Get-Date
+$Branch = "main"
+$DebounceSeconds = 5
 
 Set-Location $ProjectPath
 
-Write-Host "Automatic GitHub Sync Started..." -ForegroundColor Green
-Write-Host "Monitoring project files. Press Ctrl+C to stop."
+$Watcher = New-Object System.IO.FileSystemWatcher
+$Watcher.Path = $ProjectPath
+$Watcher.IncludeSubdirectories = $true
+$Watcher.NotifyFilter = [System.IO.NotifyFilters]'FileName, DirectoryName, LastWrite, Size'
+$Watcher.EnableRaisingEvents = $true
 
-while ($true) {
-    $CurrentStatus = git status --porcelain
+$Sources = @("Changed", "Created", "Deleted", "Renamed")
 
-    if ($CurrentStatus -ne $LastStatus) {
-        $LastStatus = $CurrentStatus
-        $LastChangeTime = Get-Date
-    }
+foreach ($Source in $Sources) {
+    Register-ObjectEvent -InputObject $Watcher -EventName $Source `
+        -SourceIdentifier "ProjectSync_$Source" | Out-Null
+}
 
-    if ($CurrentStatus -ne "" -and
-        ((Get-Date) - $LastChangeTime).TotalSeconds -ge 5) {
+Write-Host "Automatic GitHub Sync Started!" -ForegroundColor Green
+Write-Host "Watching: $ProjectPath"
+Write-Host "Save a file with Ctrl+S to sync. Press Ctrl+C to stop."
 
-        git add -A
+$Pending = $false
+$LastChange = Get-Date
 
-        $StagedChanges = git diff --cached --quiet
-        if ($LASTEXITCODE -ne 0) {
-            $CommitMessage = "Automatic update: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-
-            git commit -m $CommitMessage
-
-            if ($LASTEXITCODE -eq 0) {
-                git push
-
-                if ($LASTEXITCODE -eq 0) {
-                    Write-Host "GitHub updated successfully!" -ForegroundColor Green
-                }
-                else {
-                    Write-Host "Push failed. Check your connection." -ForegroundColor Red
-                }
-            }
+try {
+    while ($true) {
+        $Events = Get-Event | Where-Object {
+            $_.SourceIdentifier -like "ProjectSync_*"
         }
 
-        $LastStatus = git status --porcelain
-        $LastChangeTime = Get-Date
+        foreach ($Event in $Events) {
+            $Path = [string]$Event.SourceEventArgs.FullPath
+
+            Remove-Event -EventIdentifier $Event.EventIdentifier
+
+            if ($Path -match '[\\/](\.git|\.venv|__pycache__|\.ipynb_checkpoints)[\\/]' -or
+                $Path -match '[\\/]\.env($|\.)' -or
+                $Path -match '\.(tmp|temp|swp)$') {
+                continue
+            }
+
+            $Pending = $true
+            $LastChange = Get-Date
+        }
+
+        if ($Pending -and
+            ((Get-Date) - $LastChange).TotalSeconds -ge $DebounceSeconds) {
+
+            Write-Host "Changes detected. Uploading..." -ForegroundColor Yellow
+
+            git add -A
+
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "Git staging failed." -ForegroundColor Red
+            }
+            else {
+                git diff --cached --quiet
+
+                if ($LASTEXITCODE -eq 1) {
+                    $Message = "Automatic update: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+
+                    git commit -m $Message
+
+                    if ($LASTEXITCODE -eq 0) {
+                        git push origin $Branch
+
+                        if ($LASTEXITCODE -eq 0) {
+                            Write-Host "GitHub updated successfully!" -ForegroundColor Green
+                        }
+                        else {
+                            Write-Host "Push failed. Check your internet or GitHub login." -ForegroundColor Red
+                        }
+                    }
+                }
+                elseif ($LASTEXITCODE -ne 0) {
+                    Write-Host "Could not check staged changes." -ForegroundColor Red
+                }
+            }
+
+            $Pending = $false
+        }
+
+        Start-Sleep -Milliseconds 500
+    }
+}
+finally {
+    $Watcher.EnableRaisingEvents = $false
+    $Watcher.Dispose()
+
+    foreach ($Source in $Sources) {
+        Unregister-Event -SourceIdentifier "ProjectSync_$Source" -ErrorAction SilentlyContinue
     }
 
-    Start-Sleep -Seconds 2
+    Write-Host "Automatic synchronization stopped."
 }

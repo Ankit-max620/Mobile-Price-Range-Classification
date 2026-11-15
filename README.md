@@ -1,3 +1,4 @@
+
 # Mobile Price Range Classification
 
 **A Machine Learning Project for Predicting Mobile Phone Price Categories**
@@ -304,6 +305,3 @@ Overall, this project provides an opportunity to apply data analysis and machine
 **Number of Price Categories:** 4  
 **Development Environment:** Zed Editor and Python Virtual Environment  
 **Version Control:** Git and GitHub
-
-
-Automatic GitHub synchronization test.

@@ -19,6 +19,5 @@ def load_raw_data(path: str) -> pd.DataFrame:
         )
 
         return df
-
     except Exception as e:
         raise CustomException(e, sys)

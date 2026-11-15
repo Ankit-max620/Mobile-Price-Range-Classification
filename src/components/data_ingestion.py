@@ -20,4 +20,5 @@ def load_raw_data(path: str) -> pd.DataFrame:
 
         return df
     except Exception as e:
+        logging.exception("Data ingestion failed")
         raise CustomException(e, sys)
